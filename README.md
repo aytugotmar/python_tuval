@@ -4,14 +4,13 @@
 
 Bu proje sizin el hareketlerinizle ekrana yazı yazar.
 
-| Gesture           | Davranış         |
-| ----------------- | ---------------- |
-| ☝️ Index          | Çiz              |
-| 🤘 Rock           | Sil              |
-| ✌️ Index+Middle   | Hiçbir şey yapma |
-| 🤟 3 Parmak       | Seçme            |
-| 🤏 Thumb + Index  | Kalınlık ayarı   |
-| Baş parmak kapalı | Default kalınlık |
+☝️ Sadece işaret parmağı açık → Çiz
+
+🤏 Baş + işaret birleşik (pinch) → Çiz (kalem modu)
+
+🤘 Rock (index + pinky) → Renk değiştir
+
+✋ Tüm parmaklar açık → Silgi
 
 <h2>Projeyi Başlatma: </h2>
 

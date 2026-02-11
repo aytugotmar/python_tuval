@@ -1,6 +1,6 @@
 """
-Ultimate Air Gesture Drawing System - Full Stable Version
-Author: Aytuğ Edition 😎
+Air Gesture Drawing System - Simplified Stable Version
+Mac Fullscreen Fix Included
 """
 
 import cv2
@@ -10,26 +10,17 @@ import time
 import math
 
 # ==========================================================
-# CONFIGURATION
+# CONFIG
 # ==========================================================
 
 TARGET_FPS = 60
+BRUSH_THICKNESS = 4
+ERASER_SIZE = 70
 
-# Smoothing ayarları (hıza göre değişecek)
-MIN_SMOOTHING = 0.5
-MAX_SMOOTHING = 0.85
+CURSOR_SENS = 1.1
+HAND_LOST_TIMEOUT = 0.3
+ROCK_COOLDOWN = 0.7  # renk değişim spam engeli
 
-# Kalınlık ayarları
-BRUSH_MIN = 3
-BRUSH_MAX = 40
-DEFAULT_THICKNESS = 8
-ERASER_SIZE = 60
-
-# Hassasiyet (kamera dar - tuval geniş uyumu)
-CURSOR_SENS_X = 1.4
-CURSOR_SENS_Y = 1.4
-
-# Mediapipe güven değerleri
 MIN_DETECTION_CONF = 0.8
 MIN_TRACKING_CONF = 0.8
 
@@ -42,7 +33,7 @@ mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     min_detection_confidence=MIN_DETECTION_CONF,
     min_tracking_confidence=MIN_TRACKING_CONF,
-    max_num_hands=2
+    max_num_hands=1
 )
 
 cap = cv2.VideoCapture(0)
@@ -53,24 +44,22 @@ if not success:
 
 height, width, _ = frame_init.shape
 
-# Gerçek fullscreen pencere
+# 🔥 MAC TRUE FULLSCREEN FIX
 cv2.namedWindow("AirCanvas", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("AirCanvas", width, height)
 cv2.setWindowProperty("AirCanvas",
                       cv2.WND_PROP_FULLSCREEN,
                       cv2.WINDOW_FULLSCREEN)
 
-# Tam beyaz tuval
 canvas = np.ones((height, width, 3), dtype=np.uint8) * 255
 
 # ==========================================================
-# STATE VARIABLES
+# STATE
 # ==========================================================
 
-previous_points = {}
-smoothed_points = {}
-
-draw_color = (0, 0, 255)
-brush_thickness = DEFAULT_THICKNESS
+previous_point = None
+last_hand_seen_time = time.time()
+last_rock_time = 0
 
 color_palette = [
     (0, 0, 255),
@@ -80,7 +69,9 @@ color_palette = [
     (255, 0, 255)
 ]
 
-selected_color_index = 0
+color_index = 0
+draw_color = color_palette[color_index]
+
 previous_time = time.time()
 
 # ==========================================================
@@ -90,43 +81,20 @@ previous_time = time.time()
 def calculate_distance(p1, p2):
     return int(math.hypot(p2[0] - p1[0], p2[1] - p1[1]))
 
-
-def smooth_point(prev, current):
-    if prev is None:
-        return current
-
-    movement = calculate_distance(prev, current)
-
-    smoothing = np.interp(
-        movement,
-        [0, 50],
-        [MAX_SMOOTHING, MIN_SMOOTHING]
-    )
-
-    x = int(prev[0] * smoothing + current[0] * (1 - smoothing))
-    y = int(prev[1] * smoothing + current[1] * (1 - smoothing))
-
-    return (x, y)
-
-
 def is_finger_up(tip, dip):
     return tip[1] < dip[1]
 
+def map_coordinates(lm_x, lm_y):
+    center_x = width // 2
+    center_y = height // 2
 
-def map_thickness(distance):
-    min_dist = 15
-    max_dist = 180
+    x = int(center_x + (lm_x - 0.5) * width * CURSOR_SENS)
+    y = int(center_y + (lm_y - 0.5) * height * CURSOR_SENS)
 
-    distance = max(min_dist, min(distance, max_dist))
+    x = np.clip(x, 0, width - 1)
+    y = np.clip(y, 0, height - 1)
 
-    thickness = np.interp(
-        distance,
-        [min_dist, max_dist],
-        [BRUSH_MIN, BRUSH_MAX]
-    )
-
-    return int(thickness)
-
+    return x, y
 
 # ==========================================================
 # MAIN LOOP
@@ -134,13 +102,10 @@ def map_thickness(distance):
 
 while cap.isOpened():
 
-    # FPS Stabilizasyon
     now = time.time()
     elapsed = now - previous_time
-
     if elapsed < 1.0 / TARGET_FPS:
         time.sleep((1.0 / TARGET_FPS) - elapsed)
-
     previous_time = time.time()
 
     success, frame = cap.read()
@@ -149,173 +114,92 @@ while cap.isOpened():
 
     frame = cv2.flip(frame, 1)
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
     results = hands.process(frame_rgb)
 
     display_canvas = canvas.copy()
 
-    # ======================================================
-    # COLOR PALETTE (Üst bar)
-    # ======================================================
-
-    for i, color in enumerate(color_palette):
-        x_pos = 50 + i * 80
-
-        cv2.rectangle(display_canvas,
-                      (x_pos, 20),
-                      (x_pos + 60, 80),
-                      color,
-                      cv2.FILLED)
-
-        if i == selected_color_index:
-            cv2.rectangle(display_canvas,
-                          (x_pos, 20),
-                          (x_pos + 60, 80),
-                          (0, 0, 0),
-                          3)
-
-    # ======================================================
-    # CAMERA PREVIEW (Sağ üst)
-    # ======================================================
-
-    preview_w = int(width * 0.25)
-    preview_h = int(height * 0.25)
-
+    # Kamera preview (küçük)
+    preview_w = int(width * 0.22)
+    preview_h = int(height * 0.22)
     small_frame = cv2.resize(frame, (preview_w, preview_h))
-
     display_canvas[0:preview_h,
                    width - preview_w:width] = small_frame
 
-    # ======================================================
-    # FPS Gösterimi
-    # ======================================================
-
-    fps = int(1 / max(elapsed, 0.0001))
-
-    cv2.putText(display_canvas,
-                f"FPS: {fps}",
-                (30, height - 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (50, 50, 50),
-                2)
-
-    # ======================================================
-    # HAND PROCESSING
-    # ======================================================
-
     if results.multi_hand_landmarks:
 
-        for hand_index, hand_landmarks in enumerate(results.multi_hand_landmarks):
+        last_hand_seen_time = time.time()
 
-            points = []
+        hand_landmarks = results.multi_hand_landmarks[0]
 
-            for lm in hand_landmarks.landmark:
-                x = int(lm.x * width * CURSOR_SENS_X)
-                y = int(lm.y * height * CURSOR_SENS_Y)
+        points = []
+        for lm in hand_landmarks.landmark:
+            x, y = map_coordinates(lm.x, lm.y)
+            points.append((x, y))
 
-                # Kör nokta fix (taşmayı engelle)
-                x = max(0, min(width - 1, x))
-                y = max(0, min(height - 1, y))
+        thumb_tip = points[4]
+        index_tip = points[8]
+        middle_tip = points[12]
+        ring_tip = points[16]
+        pinky_tip = points[20]
 
-                points.append((x, y))
+        index_dip = points[6]
+        middle_dip = points[10]
+        ring_dip = points[14]
+        pinky_dip = points[18]
 
-            thumb_tip = points[4]
-            index_tip = points[8]
-            middle_tip = points[12]
-            ring_tip = points[16]
-            pinky_tip = points[20]
+        index_up = is_finger_up(index_tip, index_dip)
+        middle_up = is_finger_up(middle_tip, middle_dip)
+        ring_up = is_finger_up(ring_tip, ring_dip)
+        pinky_up = is_finger_up(pinky_tip, pinky_dip)
 
-            index_dip = points[6]
-            middle_dip = points[10]
-            ring_dip = points[14]
-            pinky_dip = points[18]
+        # ✋ TÜM EL AÇIK → SİLGİ
+        if index_up and middle_up and ring_up and pinky_up:
 
-            # Parmak durumları
-            index_up = is_finger_up(index_tip, index_dip)
-            middle_up = is_finger_up(middle_tip, middle_dip)
-            ring_up = is_finger_up(ring_tip, ring_dip)
-            pinky_up = is_finger_up(pinky_tip, pinky_dip)
+            previous_point = None
+            cv2.circle(canvas,
+                       index_tip,
+                       ERASER_SIZE,
+                       (255, 255, 255),
+                       cv2.FILLED)
 
-            # Baş parmak açık mı?
-            thumb_up = thumb_tip[0] > points[3][0]
+        # 🤘 ROCK → RENK DEĞİŞTİR
+        elif index_up and pinky_up and not middle_up and not ring_up:
 
-            # Smoothing
-            prev_smooth = smoothed_points.get(hand_index)
-            smooth = smooth_point(prev_smooth, index_tip)
-            smoothed_points[hand_index] = smooth
+            if time.time() - last_rock_time > ROCK_COOLDOWN:
+                color_index = (color_index + 1) % len(color_palette)
+                draw_color = color_palette[color_index]
+                last_rock_time = time.time()
 
-            # İmleç çiz
-            cv2.circle(display_canvas, smooth, 8, (0, 0, 0), cv2.FILLED)
+            previous_point = None
 
-            # ==================================================
-            # Kalınlık kontrolü
-            # ==================================================
+        # 🤏 PINCH → KALEM MODU
+        else:
+            pinch_distance = calculate_distance(thumb_tip, index_tip)
 
-            if thumb_up:
-                thumb_distance = calculate_distance(thumb_tip, index_tip)
-                brush_thickness = map_thickness(thumb_distance)
-            else:
-                brush_thickness = DEFAULT_THICKNESS
+            pinch_active = pinch_distance < 35
 
-            # ==================================================
-            # 3 Parmak = Seçme Modu
-            # ==================================================
+            draw_mode = (index_up and not middle_up and not ring_up and not pinky_up) or pinch_active
 
-            three_select = index_up and middle_up and ring_up and not pinky_up
+            if draw_mode:
 
-            if three_select:
-
-                previous_points[hand_index] = None
-
-                for i in range(len(color_palette)):
-                    x_start = 50 + i * 80
-                    if x_start < smooth[0] < x_start + 60 and 20 < smooth[1] < 80:
-                        selected_color_index = i
-                        draw_color = color_palette[i]
-
-            # ==================================================
-            # ÇİZİM (Sadece index)
-            # ==================================================
-
-            elif index_up and not middle_up and not ring_up and not pinky_up:
-
-                prev = previous_points.get(hand_index)
-
-                if prev is None:
-                    previous_points[hand_index] = smooth
+                if previous_point is None:
+                    previous_point = index_tip
                 else:
                     cv2.line(canvas,
-                             prev,
-                             smooth,
+                             previous_point,
+                             index_tip,
                              draw_color,
-                             brush_thickness)
-                    previous_points[hand_index] = smooth
-
-            # ==================================================
-            # SİLGİ (Rock 🤘 = index + pinky)
-            # ==================================================
-
-            elif index_up and pinky_up and not middle_up and not ring_up:
-
-                previous_points[hand_index] = None
-
-                cv2.circle(canvas,
-                           smooth,
-                           ERASER_SIZE,
-                           (255, 255, 255),
-                           cv2.FILLED)
-
-            # ==================================================
-            # Diğer durumlar
-            # ==================================================
-
+                             BRUSH_THICKNESS)
+                    previous_point = index_tip
             else:
-                previous_points[hand_index] = None
+                previous_point = None
+
+        # İmleç
+        cv2.circle(display_canvas, index_tip, 8, (0, 0, 0), cv2.FILLED)
 
     else:
-        previous_points.clear()
-        smoothed_points.clear()
+        if time.time() - last_hand_seen_time > HAND_LOST_TIMEOUT:
+            previous_point = None
 
     cv2.imshow("AirCanvas", display_canvas)
 
