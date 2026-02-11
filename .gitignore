@@ -1,0 +1,12 @@
+# Sanal ortam klasörlerini görmezden gel
+env/
+.venv/
+venv/
+ENV/
+
+# Python derleme dosyalarını görmezden gel
+__pycache__/
+*.py[cod]
+
+# İşletim sistemi dosyaları
+.DS_Store
