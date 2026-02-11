@@ -2,11 +2,16 @@
 
 <h2>Proje Konusu: </h2>
 
-Bu proje sizin el hareketlerinizle ekrana yazı yazar. 
+Bu proje sizin el hareketlerinizle ekrana yazı yazar.
 
-Sadece işaret parmak: Yazı yazma modu
-
-İşaret parmak + orta parmak: Silgi modu
+| Gesture           | Davranış         |
+| ----------------- | ---------------- |
+| ☝️ Index          | Çiz              |
+| 🤘 Rock           | Sil              |
+| ✌️ Index+Middle   | Hiçbir şey yapma |
+| 🤟 3 Parmak       | Seçme            |
+| 🤏 Thumb + Index  | Kalınlık ayarı   |
+| Baş parmak kapalı | Default kalınlık |
 
 <h2>Projeyi Başlatma: </h2>
 
